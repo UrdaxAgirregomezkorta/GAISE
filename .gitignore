@@ -1,0 +1,9 @@
+.env
+.env.local
+node_modules/
+*.db
+apartments.db
+.DS_Store
+debug-telegram.js
+.vscode/
+*.log
