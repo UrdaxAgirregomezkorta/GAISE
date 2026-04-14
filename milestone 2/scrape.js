@@ -131,7 +131,7 @@ async function main() {
     }
 
     // Extract filters
-    const filters = extractFilters(values);
+    const filters = extractFilters(values) || {}; // Default to empty object
 
     // Parse max-pages
     const maxPages = values['max-pages'] ? parseInt(values['max-pages'], 10) : null;

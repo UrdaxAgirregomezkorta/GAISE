@@ -1,5 +1,5 @@
-import Database from 'better-sqlite3';
-import { createClient } from '@tursodatabase/serverless';
+import initSqlJs from 'sql.js';
+import { connect } from '@tursodatabase/serverless';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -7,25 +7,33 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(__dirname, '..', 'apartments.db');
 
-/** @type {Database.Database} */
+/** @type {any} */
 let localDb = null;
 
 /** @type {any} */
 let tursoDb = null;
 
+/** @type {boolean} */
+let dbInitialized = false;
+
 /**
  * Initialize SQLite database with schema
  */
-function initLocalDb() {
-  if (localDb) return localDb;
+async function initLocalDb() {
+  if (dbInitialized) return localDb;
 
-  localDb = new Database(DB_PATH);
+  const SQL = await initSqlJs();
   
-  // Enable foreign keys
-  localDb.pragma('journal_mode = WAL');
+  let data = null;
+  if (fs.existsSync(DB_PATH)) {
+    data = fs.readFileSync(DB_PATH);
+    localDb = new SQL.Database(data);
+  } else {
+    localDb = new SQL.Database();
+  }
 
   // Create apartments table if it doesn't exist
-  localDb.exec(`
+  localDb.run(`
     CREATE TABLE IF NOT EXISTS apartments (
       id TEXT PRIMARY KEY,
       siteId TEXT NOT NULL,
@@ -38,11 +46,17 @@ function initLocalDb() {
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
     );
+  `);
 
+  localDb.run(`
     CREATE INDEX IF NOT EXISTS idx_apartments_siteId ON apartments(siteId);
+  `);
+
+  localDb.run(`
     CREATE INDEX IF NOT EXISTS idx_apartments_scrapedAt ON apartments(scrapedAt);
   `);
 
+  dbInitialized = true;
   console.log(`[db] SQLite initialized at ${DB_PATH}`);
   return localDb;
 }
@@ -61,7 +75,7 @@ async function initTursoDb() {
     return null;
   }
 
-  tursoDb = createClient({ url, authToken: token });
+  tursoDb = await connect({ url, authToken: token });
 
   try {
     await tursoDb.execute(`
@@ -101,7 +115,7 @@ async function initTursoDb() {
  * @param {import('./types.js').Listing} listing
  */
 export async function upsertListing(listing) {
-  const db = initLocalDb();
+  const db = await initLocalDb();
 
   // Normalize price to numeric if not provided
   if (!listing.priceNum && listing.price) {
@@ -109,8 +123,8 @@ export async function upsertListing(listing) {
     listing.priceNum = parseInt(numStr, 10) || null;
   }
 
-  // Upsert to SQLite
-  const stmt = db.prepare(`
+  // Upsert to SQLite using sql.js
+  const stmt = `
     INSERT INTO apartments (id, siteId, title, price, priceNum, location, url, scrapedAt)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
@@ -121,9 +135,9 @@ export async function upsertListing(listing) {
       url = excluded.url,
       scrapedAt = excluded.scrapedAt,
       updatedAt = datetime('now')
-  `);
+  `;
 
-  stmt.run(
+  db.run(stmt, [
     listing.id,
     listing.siteId,
     listing.title,
@@ -132,7 +146,10 @@ export async function upsertListing(listing) {
     listing.location,
     listing.url,
     listing.scrapedAt
-  );
+  ]);
+
+  // Save to disk
+  saveLocalDb();
 
   // Upsert to Turso if available
   if (tursoDb) {
@@ -178,31 +195,42 @@ export async function upsertListings(listings) {
 }
 
 /**
+ * Save database to file
+ */
+function saveLocalDb() {
+  if (!localDb) return;
+  const data = localDb.export();
+  const buffer = Buffer.from(data);
+  fs.writeFileSync(DB_PATH, buffer);
+}
+
+/**
  * Get database status
  * @returns {Promise<Object>}
  */
 export async function getStatus() {
-  const db = initLocalDb();
+  const db = await initLocalDb();
   
   // Prepare Turso if available
   const turso = await initTursoDb();
 
   // Count total listings in SQLite
-  const { count: totalLocal } = db.prepare('SELECT COUNT(*) as count FROM apartments').get();
+  const countResult = db.exec('SELECT COUNT(*) as count FROM apartments');
+  const totalLocal = countResult.length > 0 ? countResult[0].values[0][0] : 0;
 
   // Count by site
-  const bySiteLocal = db.prepare(`
+  const bySiteResult = db.exec(`
     SELECT siteId, COUNT(*) as count
     FROM apartments
     GROUP BY siteId
     ORDER BY siteId
-  `).all();
+  `);
 
   // Get first and last scraped timestamps
-  const timestamps = db.prepare(`
+  const timestampsResult = db.exec(`
     SELECT MIN(scrapedAt) as first, MAX(scrapedAt) as last
     FROM apartments
-  `).get();
+  `);
 
   const status = {
     totalListings: totalLocal,
@@ -211,24 +239,26 @@ export async function getStatus() {
     bySite: {}
   };
 
-  // Add SQLite info
+  // Add database info
   status.databases.push('SQLite (local)');
   if (turso) {
     status.databases.push('Turso (cloud)');
   }
 
   // Organize by site
-  for (const row of bySiteLocal) {
-    status.bySite[row.siteId] = {
-      count: row.count
-    };
+  if (bySiteResult.length > 0 && bySiteResult[0].values.length > 0) {
+    for (const row of bySiteResult[0].values) {
+      status.bySite[row[0]] = {
+        count: row[1]
+      };
+    }
   }
 
-  if (timestamps.first) {
-    status.firstScraped = timestamps.first;
-  }
-  if (timestamps.last) {
-    status.lastScraped = timestamps.last;
+  if (timestampsResult.length > 0 && timestampsResult[0].values.length > 0) {
+    const first = timestampsResult[0].values[0][0];
+    const last = timestampsResult[0].values[0][1];
+    if (first) status.firstScraped = first;
+    if (last) status.lastScraped = last;
   }
 
   return status;
@@ -239,7 +269,7 @@ export async function getStatus() {
  */
 export function close() {
   if (localDb) {
-    localDb.close();
+    saveLocalDb();
     localDb = null;
   }
   // Turso client doesn't need explicit closing

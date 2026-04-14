@@ -41,21 +41,44 @@ function normalizeText(value) {
  * @param {any} page - Playwright page
  * @param {Object} filters - { propertyType, municipality }
  */
-async function applyFilters(page, filters) {
+async function applyFilters(page, filters = {}) {
+  // Ensure filters object exists
+  if (!filters || typeof filters !== 'object') {
+    console.warn('[iparralde] Invalid filters object');
+    return;
+  }
+
+  // Check if search form exists
   const searchForm = page.locator('form.findus[action*="listado_de_inmuebles"]').first();
+  const formExists = await searchForm.count().catch(() => 0) > 0;
 
-  if (filters.propertyType) {
-    await searchForm.locator('select[name="tipoInmueble[]"]').selectOption({ label: filters.propertyType });
+  if (!formExists) {
+    console.warn('[iparralde] Search form not found; skipping filter application');
+    return;
   }
 
-  if (filters.municipality) {
-    await searchForm.locator('select[name="municipio[]"]').selectOption({ label: filters.municipality });
-  }
+  try {
+    if (filters.propertyType) {
+      const typeSelect = searchForm.locator('select[name="tipoInmueble[]"]');
+      if (await typeSelect.count() > 0) {
+        await typeSelect.selectOption({ label: filters.propertyType });
+      }
+    }
 
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
-    searchForm.locator('button[type="submit"]').click()
-  ]);
+    if (filters.municipality) {
+      const muniSelect = searchForm.locator('select[name="municipio[]"]');
+      if (await muniSelect.count() > 0) {
+        await muniSelect.selectOption({ label: filters.municipality });
+      }
+    }
+
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }),
+      searchForm.locator('button[type="submit"]').click()
+    ]);
+  } catch (err) {
+    console.warn('[iparralde] Filter application failed:', err.message);
+  }
 }
 
 /**
