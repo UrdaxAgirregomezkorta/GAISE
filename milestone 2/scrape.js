@@ -103,11 +103,10 @@ async function main() {
       console.log('\n=== Database Status ===');
       console.log(`Total listings: ${status.totalListings}`);
       console.log(`Database path: ${status.databasePath}`);
-      console.log(`Databases: ${status.databases.join(', ')}`);
       if (Object.keys(status.bySite).length > 0) {
         console.log('By site:');
         for (const [site, info] of Object.entries(status.bySite)) {
-          console.log(`  ${site}: ${info.count} listings`);
+          console.log(`${site}: ${info.count} listings`);
         }
       }
       if (status.firstScraped) {
