@@ -1,0 +1,27 @@
+{
+  "name": "real-estate-monitor",
+  "version": "2.0.0",
+  "description": "Real estate scraper with SQLite and Turso persistence",
+  "main": "scrape.js",
+  "type": "module",
+  "scripts": {
+    "scrape": "node scrape.js",
+    "test": "node --eval 'console.log(\"Add tests here\")'",
+    "status": "node scrape.js --status"
+  },
+  "keywords": [
+    "scraper",
+    "real-estate",
+    "sqlite",
+    "turso"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@tursodatabase/serverless": "latest",
+    "sql.js": "^1.8.0",
+    "dotenv": "^16.0.0",
+    "playwright": "^1.40.0"
+  },
+  "devDependencies": {}
+}
