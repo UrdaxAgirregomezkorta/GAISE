@@ -88,7 +88,8 @@ async function main() {
     // Show help if no args
     if (args.length === 0) {
       showHelp();
-      process.exit(0);
+      process.exitCode = 0;
+      return;
     }
 
     const values = parseArguments(args);
@@ -112,22 +113,25 @@ async function main() {
       if (status.lastScraped) {
         console.log(`Last scraped: ${status.lastScraped}`);
       }
-      close();
-      process.exit(0);
+      // Use exitCode instead of process.exit() to avoid Windows libuv issues
+      process.exitCode = 0;
+      return;
     }
 
     // Get site adapter
     if (!values.site) {
       console.error('Error: --site is required for scraping');
       showHelp();
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     const adapter = getAdapter(values.site);
     if (!adapter) {
       console.error(`Error: unknown site "${values.site}"`);
       console.error(`Available: ${listAdapters().join(', ')}`);
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     // Extract filters
@@ -148,8 +152,8 @@ async function main() {
     // Output JSON to stdout
     if (!values.out && !values.persist) {
       console.log(JSON.stringify(listings, null, 2));
-      close();
-      process.exit(0);
+      process.exitCode = 0;
+      return;
     }
 
     // Save to file if requested
@@ -169,12 +173,10 @@ async function main() {
       }
     }
 
-    close();
-    process.exit(0);
+    process.exitCode = 0;
   } catch (err) {
     console.error('Fatal error:', err);
-    close();
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
 

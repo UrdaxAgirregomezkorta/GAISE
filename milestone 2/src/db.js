@@ -211,8 +211,8 @@ function saveLocalDb() {
 export async function getStatus() {
   const db = await initLocalDb();
   
-  // Prepare Turso if available
-  const turso = await initTursoDb();
+  // Check if Turso credentials exist (without initializing if not available)
+  const hasTursoCredentials = !!(process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN);
 
   // Count total listings in SQLite
   const countResult = db.exec('SELECT COUNT(*) as count FROM apartments');
@@ -241,7 +241,7 @@ export async function getStatus() {
 
   // Add database info
   status.databases.push('SQLite (local)');
-  if (turso) {
+  if (hasTursoCredentials) {
     status.databases.push('Turso (cloud)');
   }
 
