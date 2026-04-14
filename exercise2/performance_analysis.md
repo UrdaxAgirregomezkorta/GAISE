@@ -1,15 +1,5 @@
-# Exercise 2 - Performance Analysis
-
-## Command used
-
-```bash
-python analyze_chat.py chat.json --pretty --label "claude-sonnet-4.6 playwright run"
-```
-
-## Output
-
-```json
-{
+(base) PS C:\Users\urdax\playwright-iparralde> python3 analyze_chat.py chat.json --pretty --label "claude-sonnet-4.6 playwright run"
+{  
   "label": "claude-sonnet-4.6 playwright run",
   "responder": "GitHub Copilot",
   "request_count": 1,
@@ -26,15 +16,3 @@ python analyze_chat.py chat.json --pretty --label "claude-sonnet-4.6 playwright 
   "duration_s": 2414.38,
   "first_progress_ms": 8537
 }
-```
-
-## Key takeaways
-
-- Total run time: 2414.38 s (about 40.24 min).
-- Time to first visible progress: 8537 ms (about 8.54 s).
-- Total tool calls: 34.
-- Tool usage was mostly terminal-driven (26 of 34 calls, 76.47%).
-
-## Interpretation
-
-The run is highly dominated by terminal interactions, which suggests the workflow relied on iterative command execution and verification. The first-progress latency is low, so responsiveness is good, but total elapsed time is high, indicating that the main optimization opportunity is reducing long iterative loops in command execution.
