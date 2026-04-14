@@ -1,21 +1,27 @@
 # Milestone 2
 
-Esta carpeta contiene el trabajo del milestone 2.
+This folder contains all deliverables for Milestone 2.
 
-## Estructura
+## Scope
 
-- `scripts/`: scripts de scraping, procesamiento y analisis.
-- `data/`: datos de entrada (fuentes, snapshots, raw).
-- `outputs/`: resultados generados (json, csv, etc.).
-- `reports/`: informes y conclusiones.
+Milestone 1 remains in exercise1 to exercise6. This directory is reserved for new Milestone 2 work only.
 
-## Convencion recomendada
+## Folder Structure
 
-1. Guardar datos crudos en `data/`.
-2. Ejecutar scripts desde `scripts/`.
-3. Escribir resultados en `outputs/`.
-4. Documentar hallazgos en `reports/`.
+- scripts/: scraping, transformation, and analysis scripts.
+- data/: raw inputs, snapshots, and intermediate data.
+- outputs/: generated artifacts such as JSON/CSV results.
+- reports/: written analysis, conclusions, and performance notes.
 
-## Nota
+## Recommended Workflow
 
-Los ejercicios 1-6 permanecen intactos como trabajo del milestone 1.
+1. Store raw source material in data/.
+2. Run implementation scripts from scripts/.
+3. Save generated files in outputs/.
+4. Summarize findings in reports/.
+
+## Conventions
+
+- Keep filenames descriptive and stable.
+- Prefer reproducible scripts over manual steps.
+- Add short execution notes in reports/ when relevant.
