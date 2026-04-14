@@ -4,7 +4,8 @@ import 'dotenv/config';
 import { readFileSync, writeFileSync } from 'fs';
 import { parseArgs } from 'util';
 import { getAdapter, listAdapters } from './src/adapters/index.js';
-import { upsertListings, getStatus, syncToTurso, close } from './src/db.js';
+import { upsertListings, getStatus, syncToTurso, initTursoDb, close } from './src/db.js';
+import { trackRunStart, trackRunFinish, detectChanges } from './src/monitoring.js';
 
 const args = process.argv.slice(2);
 
@@ -177,10 +178,29 @@ async function main() {
     if (values.persist || (!values.out && !values['dry-run'])) {
       if (values['dry-run']) {
         console.log('[dry-run] Would persist to databases (not actually saving)');
+        // Still detect and display changes in dry-run mode
+        const turso = await initTursoDb();
+        const summary = await detectChanges(turso, listings, 0, values.site, true);
+        console.log('[dry-run] Change summary:', summary);
       } else {
         console.log('Persisting to databases...');
+        
+        // Start tracking this run (Milestone 3)
+        const turso = await initTursoDb();
+        const runId = await trackRunStart(turso, values.site);
+        
+        // Persist listings (Milestone 2)
         await upsertListings(listings);
         console.log(`Persisted ${listings.length} listings`);
+        
+        // Detect and record changes (Milestone 3)
+        if (runId) {
+          const summary = await detectChanges(turso, listings, runId, values.site, false);
+          console.log(`[monitoring] Changes: new=${summary.new}, price_changed=${summary.priceChanged}, attributes_changed=${summary.attributesChanged}, removed=${summary.removed}`);
+          
+          // Finish tracking run
+          await trackRunFinish(turso, runId, 'ok', listings.length);
+        }
       }
     }
 
