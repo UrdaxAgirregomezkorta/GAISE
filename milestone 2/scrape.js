@@ -4,7 +4,7 @@ import 'dotenv/config';
 import { readFileSync, writeFileSync } from 'fs';
 import { parseArgs } from 'util';
 import { getAdapter, listAdapters } from './src/adapters/index.js';
-import { upsertListings, getStatus, close } from './src/db.js';
+import { upsertListings, getStatus, syncToTurso, close } from './src/db.js';
 
 const args = process.argv.slice(2);
 
@@ -18,6 +18,7 @@ function parseArguments(args) {
       out: { type: 'string' },
       persist: { type: 'boolean' },
       status: { type: 'boolean' },
+      sync: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
       'max-pages': { type: 'string' },
       filters: { type: 'string', multiple: true }
@@ -44,6 +45,7 @@ Options:
   --out <file>               Save JSON output to file
   --persist                  Persist to SQLite + Turso databases
   --status                   Show database status and exit
+  --sync                     Sync all SQLite listings to Turso and exit
   --dry-run                  Print results without persisting
   --max-pages <n>            Limit pagination to N pages
   --filters.propertyType <v> Property type filter (e.g., "Piso")
@@ -54,6 +56,7 @@ Examples:
   node scrape.js --site iparralde --out listings.json
   node scrape.js --site iparralde --persist
   node scrape.js --status
+  node scrape.js --sync
   node scrape.js --site iparralde --filters.propertyType Piso --filters.municipality Hendaye
   node scrape.js --site iparralde --max-pages 2
 
@@ -114,6 +117,14 @@ async function main() {
         console.log(`Last scraped: ${status.lastScraped}`);
       }
       // Use exitCode instead of process.exit() to avoid Windows libuv issues
+      process.exitCode = 0;
+      return;
+    }
+
+    // Handle --sync
+    if (values.sync) {
+      console.log('Syncing SQLite listings to Turso...');
+      await syncToTurso();
       process.exitCode = 0;
       return;
     }

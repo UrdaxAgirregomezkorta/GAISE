@@ -42,9 +42,7 @@ async function initLocalDb() {
       priceNum INTEGER,
       location TEXT,
       url TEXT,
-      scrapedAt TEXT,
-      createdAt TEXT DEFAULT (datetime('now')),
-      updatedAt TEXT DEFAULT (datetime('now'))
+      scrapedAt TEXT
     );
   `);
 
@@ -87,9 +85,7 @@ async function initTursoDb() {
         priceNum INTEGER,
         location TEXT,
         url TEXT,
-        scrapedAt TEXT,
-        createdAt TEXT DEFAULT (datetime('now')),
-        updatedAt TEXT DEFAULT (datetime('now'))
+        scrapedAt TEXT
       );
     `);
 
@@ -116,6 +112,9 @@ async function initTursoDb() {
  */
 export async function upsertListing(listing) {
   const db = await initLocalDb();
+  
+  // Initialize Turso if available
+  const turso = await initTursoDb();
 
   // Normalize price to numeric if not provided
   if (!listing.priceNum && listing.price) {
@@ -133,8 +132,7 @@ export async function upsertListing(listing) {
       priceNum = excluded.priceNum,
       location = excluded.location,
       url = excluded.url,
-      scrapedAt = excluded.scrapedAt,
-      updatedAt = datetime('now')
+      scrapedAt = excluded.scrapedAt
   `;
 
   db.run(stmt, [
@@ -152,32 +150,17 @@ export async function upsertListing(listing) {
   saveLocalDb();
 
   // Upsert to Turso if available
-  if (tursoDb) {
+  if (turso) {
     try {
-      await tursoDb.execute({
-        sql: `
-          INSERT INTO apartments (id, siteId, title, price, priceNum, location, url, scrapedAt)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET
-            title = excluded.title,
-            price = excluded.price,
-            priceNum = excluded.priceNum,
-            location = excluded.location,
-            url = excluded.url,
-            scrapedAt = excluded.scrapedAt,
-            updatedAt = datetime('now')
-        `,
-        args: [
-          listing.id,
-          listing.siteId,
-          listing.title,
-          listing.price,
-          listing.priceNum,
-          listing.location,
-          listing.url,
-          listing.scrapedAt
-        ]
-      });
+      // Delete existing record first (for upsert behavior)
+      await turso.execute(`DELETE FROM apartments WHERE id = '${listing.id}'`);
+      
+      // Then insert the new record
+      const query = `
+        INSERT INTO apartments (id, siteId, title, price, priceNum, location, url, scrapedAt)
+        VALUES ('${listing.id}', '${listing.siteId}', '${listing.title}', '${listing.price}', ${listing.priceNum || 'NULL'}, '${listing.location}', '${listing.url}', '${listing.scrapedAt}')
+      `;
+      await turso.execute(query);
     } catch (err) {
       console.error('[db] Turso upsert failed:', err.message);
     }
@@ -241,8 +224,22 @@ export async function getStatus() {
 
   // Add database info
   status.databases.push('SQLite (local)');
+  
+  // Try to count from Turso if available
+  let totalTurso = 0;
   if (hasTursoCredentials) {
-    status.databases.push('Turso (cloud)');
+    try {
+      const turso = await initTursoDb();
+      if (turso) {
+        const tursoCount = await turso.execute('SELECT COUNT(*) as count FROM apartments');
+        if (tursoCount && tursoCount.rows && tursoCount.rows.length > 0) {
+          totalTurso = tursoCount.rows[0].count || 0;
+        }
+        status.databases.push(`Turso (cloud, ${totalTurso} listings)`);
+      }
+    } catch (err) {
+      status.databases.push('Turso (cloud, error counting)');
+    }
   }
 
   // Organize by site
@@ -262,6 +259,53 @@ export async function getStatus() {
   }
 
   return status;
+}
+
+/**
+ * Sync all listings from SQLite to Turso
+ */
+export async function syncToTurso() {
+  const db = await initLocalDb();
+  const turso = await initTursoDb();
+
+  if (!turso) {
+    console.log('[db] Turso not available, skipping sync');
+    return;
+  }
+
+  try {
+    // Get all listings from SQLite
+    const result = db.exec('SELECT * FROM apartments');
+    if (result.length === 0) {
+      console.log('[db] No listings to sync');
+      return;
+    }
+
+    const listings = result[0].values;
+    let synced = 0;
+
+    for (const row of listings) {
+      const [id, siteId, title, price, priceNum, location, url, scrapedAt] = row;
+      try {
+        // Delete existing record first
+        await turso.execute(`DELETE FROM apartments WHERE id = '${id}'`);
+        
+        // Then insert the new record
+        const query = `
+          INSERT INTO apartments (id, siteId, title, price, priceNum, location, url, scrapedAt)
+          VALUES ('${id}', '${siteId}', '${title}', '${price}', ${priceNum || 'NULL'}, '${location}', '${url}', '${scrapedAt}')
+        `;
+        await turso.execute(query);
+        synced++;
+      } catch (err) {
+        console.error(`[db] Failed to sync listing ${id}:`, err.message);
+      }
+    }
+
+    console.log(`[db] Synced ${synced}/${listings.length} listings to Turso`);
+  } catch (err) {
+    console.error('[db] Sync failed:', err.message);
+  }
 }
 
 /**
