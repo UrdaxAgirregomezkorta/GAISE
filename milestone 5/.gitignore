@@ -1,0 +1,7 @@
+.env
+.env.local
+node_modules/
+apartments.db
+*.db
+.DS_Store
+debug-telegram.js
