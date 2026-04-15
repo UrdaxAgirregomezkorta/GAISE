@@ -124,24 +124,25 @@ export async function startScheduler(cronExpression, sites = DEFAULT_SITES, dryR
     });
   });
 
-  // Handle graceful shutdown
-  process.on('SIGINT', async () => {
-    console.log('\n\n⏸ Shutting down gracefully...');
-    task.stop();
-    try {
-      await close();
-      console.log('✓ Resources cleaned up');
-      process.exitCode = 0;
-    } catch (err) {
-      console.error('✗ Error during shutdown:', err.message);
-      process.exitCode = 1;
-    }
-  });
-
   // Keep process running
   const keepAliveInterval = setInterval(() => {
     // Just keep the process alive
   }, 1000);
+
+  // Handle graceful shutdown
+  process.on('SIGINT', async () => {
+    console.log('\n\n⏸ Shutting down gracefully...');
+    clearInterval(keepAliveInterval);
+    task.stop();
+    try {
+      await close();
+      console.log('✓ Resources cleaned up');
+      process.exit(0);
+    } catch (err) {
+      console.error('✗ Error during shutdown:', err.message);
+      process.exit(1);
+    }
+  });
 
   try {
     // Initial run if desired
