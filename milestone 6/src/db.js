@@ -187,8 +187,15 @@ export async function upsertListing(listing) {
 
   // Normalize price to numeric if not provided
   if (!listing.priceNum && listing.price) {
-    const numStr = listing.price.replace(/[^0-9.-]/g, '');
-    listing.priceNum = parseInt(numStr, 10) || null;
+    // Parse price in European format (e.g., "586.000,00 €")
+    // Remove currency symbols and whitespace, then convert:
+    // - Replace . with empty (remove thousands separator)
+    // - Replace , with . (convert decimal separator)
+    // - Parse as integer (ignoring decimal part)
+    let numStr = listing.price.replace(/[^0-9,.]/g, ''); // Keep only digits, comma, period
+    numStr = numStr.replace(/\./g, ''); // Remove thousands separator (.)
+    numStr = numStr.replace(/,/g, '.'); // Convert decimal separator
+    listing.priceNum = parseInt(parseFloat(numStr) || 0, 10) || null;
   }
 
   // Upsert to SQLite using sql.js
