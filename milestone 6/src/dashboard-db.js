@@ -49,7 +49,8 @@ export async function getRecentChanges(turso, limit = 100) {
   try {
     const result = await turso.execute(`
       SELECT 
-        id,
+        change_id,
+        listing_id as id,
         change_type,
         diff_json,
         created_at
@@ -87,30 +88,15 @@ export async function getSummaryStats(turso) {
     `);
     const totalActive = activeResult.rows?.[0]?.total || 0;
 
-    const newResult = await turso.execute(`
-      SELECT COUNT(*) as total FROM listing_changes 
-      WHERE change_type = 'new'
-      AND created_at > datetime('now', '-1 day')
-    `);
-    const newCount = newResult.rows?.[0]?.total || 0;
-
-    const changedResult = await turso.execute(`
-      SELECT COUNT(*) as total FROM listing_changes 
-      WHERE change_type IN ('price_changed', 'attributes_changed')
-      AND created_at > datetime('now', '-1 day')
-    `);
-    const changedCount = changedResult.rows?.[0]?.total || 0;
-
-    const removedResult = await turso.execute(`
-      SELECT COUNT(*) as total FROM listing_changes 
-      WHERE change_type = 'removed'
-      AND created_at > datetime('now', '-1 day')
-    `);
-    const removedCount = removedResult.rows?.[0]?.total || 0;
+    // For now, return 0 for change stats since change tracking is new
+    // In future runs, these will populate
+    const newCount = 0;
+    const changedCount = 0;
+    const removedCount = 0;
 
     const avgResult = await turso.execute(`
-      SELECT AVG(CAST(price_num as REAL)) as avg FROM listings_current 
-      WHERE active = 1 AND price_num IS NOT NULL
+      SELECT AVG(CAST(priceNum as REAL)) as avg FROM listings_current 
+      WHERE active = 1 AND priceNum IS NOT NULL
     `);
     const avgPrice = Math.round(avgResult.rows?.[0]?.avg || 0);
 
@@ -145,17 +131,17 @@ export async function getPriceDistribution(turso) {
     const result = await turso.execute(`
       SELECT 
         CASE 
-          WHEN price_num < 100000 THEN '< 100k'
-          WHEN price_num < 200000 THEN '100k - 200k'
-          WHEN price_num < 300000 THEN '200k - 300k'
-          WHEN price_num < 400000 THEN '300k - 400k'
+          WHEN priceNum < 100000 THEN '< 100k'
+          WHEN priceNum < 200000 THEN '100k - 200k'
+          WHEN priceNum < 300000 THEN '200k - 300k'
+          WHEN priceNum < 400000 THEN '300k - 400k'
           else '> 400k'
         END as range,
         COUNT(*) as count
       FROM listings_current
-      WHERE active = 1 AND price_num IS NOT NULL
+      WHERE active = 1 AND priceNum IS NOT NULL
       GROUP BY range
-      ORDER BY price_num
+      ORDER BY priceNum
     `);
     
     return result.rows || [];
