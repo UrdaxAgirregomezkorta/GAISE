@@ -70,7 +70,7 @@ export async function getRecentChanges(turso, limit = 100) {
     const result = await turso.execute(`
       SELECT 
         change_id,
-        listing_id as id,
+        listing_id,
         change_type,
         diff_json,
         created_at
