@@ -8,7 +8,19 @@
 
 import express from 'express';
 import { initTursoDb } from './db.js';
-import { getAllListings, getRecentChanges, getSummaryStats, getPriceDistribution, getPriceHistory, initWatchlistTable, getWatchlist, addToWatchlist, removeFromWatchlist } from './dashboard-db.js';
+import {
+  getAllListings,
+  getRecentChanges,
+  getSummaryStats,
+  getPriceDistribution,
+  getPriceHistory,
+  getChangesByType,
+  getTrendData,
+  initWatchlistTable,
+  getWatchlist,
+  addToWatchlist,
+  removeFromWatchlist
+} from './dashboard-db.js';
 
 let tursoInstance = null;
 
@@ -75,6 +87,26 @@ export async function startDashboard(port = 3000) {
       const history = await getPriceHistory(tursoInstance, req.params.id);
       res.json({ history });
     } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/charts/changes-by-type', async (req, res) => {
+    try {
+      const data = await getChangesByType(tursoInstance);
+      res.json({ data });
+    } catch (err) {
+      console.error('[dashboard] Chart error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/charts/trends', async (req, res) => {
+    try {
+      const data = await getTrendData(tursoInstance);
+      res.json({ data });
+    } catch (err) {
+      console.error('[dashboard] Chart error:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -449,6 +481,30 @@ function getDashboardHTML() {
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
+
+    .charts-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      margin-top: 20px;
+    }
+
+    .chart-card {
+      background: white;
+      padding: 20px;
+      border-radius: 4px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+
+    .chart-card h3 {
+      margin: 0 0 15px 0;
+      color: #1a237e;
+      font-size: 1em;
+    }
+
+    .chart-card canvas {
+      max-width: 100%;
+    }
   </style>
 </head>
 <body>
@@ -471,6 +527,21 @@ function getDashboardHTML() {
       <div id="dashboard" class="tab-content active">
         <div class="stats-grid" id="stats">
           <div class="loading"><div class="spinner"></div>Loading...</div>
+        </div>
+
+        <div class="charts-container">
+          <div class="chart-card">
+            <h3>Price Distribution</h3>
+            <canvas id="priceDistributionChart" height="120"></canvas>
+          </div>
+          <div class="chart-card">
+            <h3>Changes by Type</h3>
+            <canvas id="changesByTypeChart" height="120"></canvas>
+          </div>
+          <div class="chart-card">
+            <h3>Changes Trend (30 Days)</h3>
+            <canvas id="changesTrendChart" height="120"></canvas>
+          </div>
         </div>
       </div>
 
@@ -509,6 +580,9 @@ function getDashboardHTML() {
     let allListings = [];
     let watchlistItems = [];
     let mapInstance = null;
+    let priceChart = null;
+    let changesChart = null;
+    let trendChart = null;
 
     function parsePriceValue(raw) {
       if (raw === null || raw === undefined) return null;
@@ -549,6 +623,24 @@ function getDashboardHTML() {
         if (!changesRes.ok) throw new Error('Changes API error: ' + changesRes.status);
         const { changes } = await changesRes.json();
         renderChanges(changes || []);
+
+        const priceDistRes = await fetch('/api/price-distribution');
+        if (priceDistRes.ok) {
+          const { distribution } = await priceDistRes.json();
+          renderPriceDistributionChart(distribution || []);
+        }
+
+        const changesTypeRes = await fetch('/api/charts/changes-by-type');
+        if (changesTypeRes.ok) {
+          const { data } = await changesTypeRes.json();
+          renderChangesByTypeChart(data || []);
+        }
+
+        const trendsRes = await fetch('/api/charts/trends');
+        if (trendsRes.ok) {
+          const { data } = await trendsRes.json();
+          renderTrendsChart(data || []);
+        }
       } catch (err) {
         console.error('Error loading data:', err);
         document.getElementById('listings-table').innerHTML = \`<div class="empty-state"><h3>Error</h3><p>\${err.message}</p></div>\`;
@@ -627,6 +719,7 @@ function getDashboardHTML() {
       changes.forEach(c => {
         const date = new Date(c.created_at).toLocaleString();
         const badge = getBadgeClass(c.change_type);
+        const changeId = c.id ?? c.change_id ?? c.listing_id ?? '—';
         let details = 'N/A';
         try {
           const diff = JSON.parse(c.diff_json || '[]');
@@ -635,7 +728,7 @@ function getDashboardHTML() {
           }
         } catch (e) {}
         html += \`<tr>
-          <td><code style="font-size: 0.85em; color: #666;">\${c.id?.substring(0, 8) || '—'}</code></td>
+          <td><code style="font-size: 0.85em; color: #666;">\${String(changeId).substring(0, 8)}</code></td>
           <td><span class="change-badge \${badge}">\${c.change_type}</span></td>
           <td>\${details}</td>
           <td>\${date}</td>
@@ -696,6 +789,122 @@ function getDashboardHTML() {
       });
       
       renderListings(filtered);
+    }
+
+    function renderPriceDistributionChart(distribution) {
+      const ctx = document.getElementById('priceDistributionChart')?.getContext('2d');
+      if (!ctx) return;
+
+      if (priceChart) priceChart.destroy();
+
+      const labels = distribution.map(d => d.range || 'Unknown');
+      const counts = distribution.map(d => Number(d.count) || 0);
+      const hasData = counts.some(v => v > 0);
+
+      priceChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: hasData ? labels : ['No data'],
+          datasets: [{
+            label: 'Properties',
+            data: hasData ? counts : [0],
+            backgroundColor: hasData
+              ? ['#0d47a1', '#1565c0', '#1976d2', '#1e88e5', '#2196f3']
+              : ['#cfd8dc'],
+            borderColor: '#0d47a1',
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: { precision: 0 }
+            }
+          }
+        }
+      });
+    }
+
+    function renderChangesByTypeChart(data) {
+      const ctx = document.getElementById('changesByTypeChart')?.getContext('2d');
+      if (!ctx) return;
+
+      if (changesChart) changesChart.destroy();
+
+      const labels = data.map(d => {
+        const type = d.change_type || 'unknown';
+        return type.charAt(0).toUpperCase() + type.slice(1);
+      });
+      const counts = data.map(d => Number(d.count) || 0);
+      const hasData = counts.some(v => v > 0);
+
+      changesChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: hasData ? labels : ['No data'],
+          datasets: [{
+            data: hasData ? counts : [1],
+            backgroundColor: hasData
+              ? ['#0d47a1', '#ff6b6b', '#ffd93d', '#6bcf7f', '#4d96ff']
+              : ['#cfd8dc'],
+            borderColor: 'white',
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { padding: 15, font: { size: 12 } }
+            }
+          }
+        }
+      });
+    }
+
+    function renderTrendsChart(data) {
+      const ctx = document.getElementById('changesTrendChart')?.getContext('2d');
+      if (!ctx) return;
+
+      if (trendChart) trendChart.destroy();
+
+      const labels = data.map(d => d.date || '');
+      const counts = data.map(d => Number(d.count) || 0);
+      const hasData = counts.length > 0;
+
+      trendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: hasData ? labels : ['No data'],
+          datasets: [{
+            label: 'Changes',
+            data: hasData ? counts : [0],
+            fill: false,
+            borderColor: '#0d47a1',
+            backgroundColor: '#0d47a1',
+            tension: 0.25
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: { precision: 0 }
+            }
+          }
+        }
+      });
     }
 
     function initMap() {

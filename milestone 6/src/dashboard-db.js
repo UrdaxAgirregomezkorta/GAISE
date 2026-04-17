@@ -69,7 +69,7 @@ export async function getRecentChanges(turso, limit = 100) {
   try {
     const result = await turso.execute(`
       SELECT 
-        change_id,
+        change_id as id,
         listing_id,
         change_type,
         diff_json,
@@ -108,14 +108,39 @@ export async function getSummaryStats(turso) {
     `);
     const totalActive = Number(firstScalar(activeResult, 'total')) || 0;
 
-    // For now, return 0 for change stats since change tracking is new
-    // In future runs, these will populate
-    const newCount = 0;
-    const changedCount = 0;
-    const removedCount = 0;
+    const newResult = await turso.execute(`
+      SELECT COUNT(*) as count
+      FROM listings_current
+      WHERE active = 1
+        AND first_seen IS NOT NULL
+        AND datetime(first_seen) >= datetime('now', '-1 day')
+    `);
+    const newCount = Number(firstScalar(newResult, 'count')) || 0;
+
+    const changedResult = await turso.execute(`
+      SELECT COUNT(DISTINCT listing_id) as count
+      FROM listing_changes
+      WHERE change_type IN ('price_changed', 'attributes_changed')
+        AND datetime(created_at) >= datetime('now', '-1 day')
+    `);
+    const changedCount = Number(firstScalar(changedResult, 'count')) || 0;
+
+    const removedResult = await turso.execute(`
+      SELECT COUNT(*) as count
+      FROM listing_changes
+      WHERE change_type = 'removed'
+        AND datetime(created_at) >= datetime('now', '-1 day')
+    `);
+    const removedCount = Number(firstScalar(removedResult, 'count')) || 0;
 
     const avgResult = await turso.execute(`
-      SELECT AVG(CAST(priceNum as REAL)) as avg FROM listings_current 
+      SELECT AVG(
+        CASE
+          WHEN CAST(priceNum as REAL) < 1000 THEN CAST(priceNum as REAL) * 1000
+          ELSE CAST(priceNum as REAL)
+        END
+      ) as avg
+      FROM listings_current
       WHERE active = 1 AND priceNum IS NOT NULL
     `);
     const avgPrice = Math.round(Number(firstScalar(avgResult, 'avg')) || 0);
@@ -149,24 +174,91 @@ export async function getPriceDistribution(turso) {
   
   try {
     const result = await turso.execute(`
+      WITH normalized_prices AS (
+        SELECT
+          CASE
+            WHEN CAST(priceNum as REAL) < 1000 THEN CAST(priceNum as REAL) * 1000
+            ELSE CAST(priceNum as REAL)
+          END as normalized_price
+        FROM listings_current
+        WHERE active = 1 AND priceNum IS NOT NULL
+      )
       SELECT 
         CASE 
-          WHEN priceNum < 100000 THEN '< 100k'
-          WHEN priceNum < 200000 THEN '100k - 200k'
-          WHEN priceNum < 300000 THEN '200k - 300k'
-          WHEN priceNum < 400000 THEN '300k - 400k'
+          WHEN normalized_price < 100000 THEN '< 100k'
+          WHEN normalized_price < 200000 THEN '100k - 200k'
+          WHEN normalized_price < 300000 THEN '200k - 300k'
+          WHEN normalized_price < 400000 THEN '300k - 400k'
           else '> 400k'
         END as range,
-        COUNT(*) as count
-      FROM listings_current
-      WHERE active = 1 AND priceNum IS NOT NULL
-      GROUP BY range
-      ORDER BY priceNum
+        COUNT(*) as count,
+        CASE
+          WHEN normalized_price < 100000 THEN 1
+          WHEN normalized_price < 200000 THEN 2
+          WHEN normalized_price < 300000 THEN 3
+          WHEN normalized_price < 400000 THEN 4
+          ELSE 5
+        END as sort_order
+      FROM normalized_prices
+      GROUP BY range, sort_order
+      ORDER BY sort_order
     `);
     
     return rowsToObjects(result);
   } catch (err) {
     console.error('[dashboard-db] Error fetching price distribution:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Get aggregated change types for chart
+ * @param {any} turso - Turso database connection
+ * @returns {Promise<Array>}
+ */
+export async function getChangesByType(turso) {
+  if (!turso) return [];
+
+  try {
+    const result = await turso.execute(`
+      SELECT
+        change_type,
+        COUNT(*) as count
+      FROM listing_changes
+      GROUP BY change_type
+      ORDER BY count DESC
+    `);
+
+    return rowsToObjects(result);
+  } catch (err) {
+    console.error('[dashboard-db] Error fetching changes by type:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Get daily trend of changes for chart
+ * @param {any} turso - Turso database connection
+ * @param {number} days - Days to look back
+ * @returns {Promise<Array>}
+ */
+export async function getTrendData(turso, days = 30) {
+  if (!turso) return [];
+
+  try {
+    const result = await turso.execute(`
+      SELECT
+        DATE(created_at) as date,
+        COUNT(*) as count
+      FROM listing_changes
+      WHERE datetime(created_at) >= datetime('now', '-${days} days')
+      GROUP BY DATE(created_at)
+      ORDER BY date ASC
+    `);
+
+    return rowsToObjects(result);
+  } catch (err) {
+    console.error('[dashboard-db] Error fetching trend data:', err.message);
     return [];
   }
 }
