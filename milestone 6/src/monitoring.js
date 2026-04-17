@@ -68,8 +68,18 @@ export async function trackRunFinish(turso, run_id, status, listingsFound) {
  */
 export function normalizePrice(price) {
   if (!price) return null;
-  const numStr = price.replace(/[^0-9.-]/g, '');
-  const num = parseInt(numStr, 10);
+
+  // Parse European price format, e.g. "16.000,00 €" -> 16000
+  let cleaned = String(price).replace(/[^0-9,.-]/g, '').trim();
+  if (!cleaned) return null;
+
+  if (cleaned.includes(',')) {
+    cleaned = cleaned.replace(/\./g, '').split(',')[0];
+  } else {
+    cleaned = cleaned.replace(/\./g, '');
+  }
+
+  const num = parseInt(cleaned, 10);
   return isNaN(num) ? null : num;
 }
 

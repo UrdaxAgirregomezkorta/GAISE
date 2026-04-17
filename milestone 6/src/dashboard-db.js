@@ -23,6 +23,43 @@ function firstScalar(result, key) {
   return row?.[key] ?? row?.[0] ?? 0;
 }
 
+function parseDiffJson(diffJson) {
+  if (!diffJson) return [];
+  try {
+    const parsed = JSON.parse(diffJson);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function isNormalizationNoiseChange(change) {
+  if (change?.change_type !== 'price_changed') return false;
+
+  const diff = parseDiffJson(change?.diff_json);
+  if (!diff.length) return false;
+
+  const priceEntry = diff.find((d) => d?.field === 'price');
+  const priceNumEntry = diff.find((d) => d?.field === 'priceNum');
+  if (!priceEntry || !priceNumEntry) return false;
+
+  const oldPrice = String(priceEntry.old ?? '').trim();
+  const newPrice = String(priceEntry.new ?? '').trim();
+  if (!oldPrice || oldPrice !== newPrice) return false;
+
+  const oldNum = Number(priceNumEntry.old);
+  const newNum = Number(priceNumEntry.new);
+  if (!Number.isFinite(oldNum) || !Number.isFinite(newNum) || oldNum === newNum) return false;
+
+  const epsilon = 0.001;
+  if (Math.abs(oldNum - (newNum * 1000)) < epsilon || Math.abs(newNum - (oldNum * 1000)) < epsilon) {
+    return true;
+  }
+
+  // Covers parser bug output like 26400 -> 26 or 367500 -> 367 when price text stayed equal.
+  return Math.floor(oldNum / 1000) === newNum || Math.floor(newNum / 1000) === oldNum;
+}
+
 /**
  * Get all active listings
  * @param {any} turso - Turso database connection
@@ -65,6 +102,9 @@ export async function getAllListings(turso) {
  */
 export async function getRecentChanges(turso, limit = 100) {
   if (!turso) return [];
+
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 100, 500));
+  const fetchLimit = safeLimit * 5;
   
   try {
     const result = await turso.execute(`
@@ -76,10 +116,13 @@ export async function getRecentChanges(turso, limit = 100) {
         created_at
       FROM listing_changes
       ORDER BY created_at DESC
-      LIMIT ${limit}
+      LIMIT ${fetchLimit}
     `);
-    
-    return rowsToObjects(result);
+
+    const changes = rowsToObjects(result);
+    return changes
+      .filter((change) => !isNormalizationNoiseChange(change))
+      .slice(0, safeLimit);
   } catch (err) {
     console.error('[dashboard-db] Error fetching changes:', err.message);
     return [];
@@ -118,12 +161,15 @@ export async function getSummaryStats(turso) {
     const newCount = Number(firstScalar(newResult, 'count')) || 0;
 
     const changedResult = await turso.execute(`
-      SELECT COUNT(DISTINCT listing_id) as count
+      SELECT listing_id, change_type, diff_json
       FROM listing_changes
       WHERE change_type IN ('price_changed', 'attributes_changed')
         AND datetime(created_at) >= datetime('now', '-1 day')
     `);
-    const changedCount = Number(firstScalar(changedResult, 'count')) || 0;
+
+    const changedRows = rowsToObjects(changedResult)
+      .filter((change) => !isNormalizationNoiseChange(change));
+    const changedCount = new Set(changedRows.map((change) => change.listing_id)).size;
 
     const removedResult = await turso.execute(`
       SELECT COUNT(*) as count
@@ -223,13 +269,22 @@ export async function getChangesByType(turso) {
     const result = await turso.execute(`
       SELECT
         change_type,
-        COUNT(*) as count
+        diff_json
       FROM listing_changes
-      GROUP BY change_type
-      ORDER BY count DESC
     `);
 
-    return rowsToObjects(result);
+    const rows = rowsToObjects(result)
+      .filter((change) => !isNormalizationNoiseChange(change));
+
+    const countsByType = new Map();
+    for (const row of rows) {
+      const key = row.change_type || 'unknown';
+      countsByType.set(key, (countsByType.get(key) || 0) + 1);
+    }
+
+    return [...countsByType.entries()]
+      .map(([change_type, count]) => ({ change_type, count }))
+      .sort((a, b) => b.count - a.count);
   } catch (err) {
     console.error('[dashboard-db] Error fetching changes by type:', err.message);
     return [];
@@ -249,14 +304,26 @@ export async function getTrendData(turso, days = 30) {
     const result = await turso.execute(`
       SELECT
         DATE(created_at) as date,
-        COUNT(*) as count
+        change_type,
+        diff_json
       FROM listing_changes
       WHERE datetime(created_at) >= datetime('now', '-${days} days')
-      GROUP BY DATE(created_at)
       ORDER BY date ASC
     `);
 
-    return rowsToObjects(result);
+    const rows = rowsToObjects(result)
+      .filter((change) => !isNormalizationNoiseChange(change));
+
+    const countsByDate = new Map();
+    for (const row of rows) {
+      const key = row.date;
+      if (!key) continue;
+      countsByDate.set(key, (countsByDate.get(key) || 0) + 1);
+    }
+
+    return [...countsByDate.entries()]
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
   } catch (err) {
     console.error('[dashboard-db] Error fetching trend data:', err.message);
     return [];
