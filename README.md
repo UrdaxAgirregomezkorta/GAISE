@@ -11,13 +11,16 @@ Main work delivered:
 - Added scheduler for periodic execution (Milestone 5).
 - Built a web dashboard with live stats, charts, change log, and insights (Milestone 6).
 
-## Milestones completed
-- Milestone 1: Base scraping and extraction.
-- Milestone 2: Data persistence (SQLite + Turso).
-- Milestone 3: Monitoring tables and change detection.
-- Milestone 4: Telegram bot notifications.
-- Milestone 5: Scheduled execution and automation.
-- Milestone 6: Dashboard website and analytics features.
+## Milestones status
+- Milestone 1: Base scraping and extraction (completed).
+- Milestone 2: Data persistence (SQLite + Turso) (completed).
+- Milestone 3: Monitoring tables and change detection (completed).
+- Milestone 4: Telegram bot notifications (completed).
+- Milestone 5: Scheduled execution and automation (completed).
+- Milestone 6: Dashboard website and analytics features (completed).
+- Milestone 7: Cloud server deployed on UpCloud (completed), but app startup on that server is currently failing.
+- Milestone 8: Deployment/domain configuration (currently problematic).
+- Milestone 9: Not completed.
 
 Optional milestone completed:
 - Extra Telegram alerting validation and delivery evidence (Milestone 4 feature).
@@ -27,6 +30,10 @@ No public domain was deployed because DNS access was not granted to me.
 The project was validated locally using:
 - http://localhost:3000
 - http://127.0.0.1:3000
+
+Milestone 7 deployment evidence:
+- Server created in UpCloud: https://hub.upcloud.com/account/sessions
+- Current status: remote server is deployed, but the program could not be launched successfully there.
 
 Deployment-related work was completed up to the DNS step; DNS assignment/configuration remained outside my access permissions.
 
@@ -53,6 +60,7 @@ Main issues during implementation:
 - False positive `price_changed` records due legacy normalization.
 - Duplicate listing entries in top price-drop insights.
 - Missing local Telegram credentials in `.env`.
+- Program launch failures on the deployed UpCloud server (Milestone 7 environment).
 
 How they were solved:
 - Improved parsing and normalization for European prices.
@@ -65,6 +73,7 @@ How they were solved:
 - Dashboard includes live stats, price distribution, change-type chart, trend chart, and top price drops.
 - Telegram notifications were tested end-to-end.
 - The codebase is modular and ready for adding more adapters/sites.
+- Milestone 7 infrastructure was deployed in UpCloud, but runtime launch on that server remains unresolved.
 - Requirement 8 is currently problematic in my environment due to deployment/DNS access limitations.
 - Requirement 9 was not completed.
 
