@@ -33,7 +33,17 @@ function parseDiffJson(diffJson) {
   }
 }
 
-function isNormalizationNoiseChange(change) {
+function escapeSqlText(value) {
+  return String(value).replace(/'/g, "''");
+}
+
+function normalizeStoredPrice(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return num < 1000 ? num * 1000 : num;
+}
+
+export function isNormalizationNoiseChange(change) {
   if (change?.change_type !== 'price_changed') return false;
 
   const diff = parseDiffJson(change?.diff_json);
@@ -326,6 +336,100 @@ export async function getTrendData(turso, days = 30) {
       .sort((a, b) => String(a.date).localeCompare(String(b.date)));
   } catch (err) {
     console.error('[dashboard-db] Error fetching trend data:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Get top price drops from recent price changes
+ * @param {any} turso - Turso database connection
+ * @param {number} limit - Max rows to return
+ * @returns {Promise<Array>}
+ */
+export async function getTopPriceDrops(turso, limit = 8) {
+  if (!turso) return [];
+
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 8, 25));
+  const fetchLimit = safeLimit * 12;
+
+  try {
+    const result = await turso.execute(`
+      SELECT
+        change_id as id,
+        listing_id,
+        diff_json,
+        created_at
+      FROM listing_changes
+      WHERE change_type = 'price_changed'
+      ORDER BY datetime(created_at) DESC
+      LIMIT ${fetchLimit}
+    `);
+
+    const changes = rowsToObjects(result)
+      .filter((change) => !isNormalizationNoiseChange(change));
+
+    const listingIds = [...new Set(changes.map((change) => change.listing_id).filter(Boolean))];
+    const listingById = new Map();
+
+    if (listingIds.length > 0) {
+      const idsSql = listingIds.map((id) => `'${escapeSqlText(id)}'`).join(', ');
+      const listingsResult = await turso.execute(`
+        SELECT id, title, location, url
+        FROM listings_current
+        WHERE id IN (${idsSql})
+      `);
+
+      for (const row of rowsToObjects(listingsResult)) {
+        listingById.set(row.id, row);
+      }
+    }
+
+    const drops = [];
+    for (const change of changes) {
+      const diff = parseDiffJson(change.diff_json);
+      const priceNumDiff = diff.find((entry) => entry?.field === 'priceNum');
+      if (!priceNumDiff) continue;
+
+      const oldPrice = normalizeStoredPrice(priceNumDiff.old);
+      const newPrice = normalizeStoredPrice(priceNumDiff.new);
+      if (!Number.isFinite(oldPrice) || !Number.isFinite(newPrice) || oldPrice <= 0) continue;
+
+      const delta = newPrice - oldPrice;
+      if (delta >= 0) continue;
+
+      const dropAmount = Math.abs(delta);
+      const dropPercent = Number(((dropAmount / oldPrice) * 100).toFixed(2));
+      const listing = listingById.get(change.listing_id) || {};
+
+      drops.push({
+        id: change.id,
+        listing_id: change.listing_id,
+        title: listing.title || null,
+        location: listing.location || null,
+        url: listing.url || null,
+        oldPrice: Math.round(oldPrice),
+        newPrice: Math.round(newPrice),
+        dropAmount: Math.round(dropAmount),
+        dropPercent,
+        created_at: change.created_at
+      });
+    }
+
+    const sortedDrops = drops
+      .sort((a, b) => (b.dropAmount - a.dropAmount) || (b.dropPercent - a.dropPercent));
+
+    const uniqueDrops = [];
+    const seenListingIds = new Set();
+    for (const drop of sortedDrops) {
+      if (!drop.listing_id || seenListingIds.has(drop.listing_id)) continue;
+      seenListingIds.add(drop.listing_id);
+      uniqueDrops.push(drop);
+      if (uniqueDrops.length >= safeLimit) break;
+    }
+
+    return uniqueDrops;
+  } catch (err) {
+    console.error('[dashboard-db] Error fetching top price drops:', err.message);
     return [];
   }
 }

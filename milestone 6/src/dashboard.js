@@ -16,6 +16,7 @@ import {
   getPriceHistory,
   getChangesByType,
   getTrendData,
+  getTopPriceDrops,
   initWatchlistTable,
   getWatchlist,
   addToWatchlist,
@@ -107,6 +108,17 @@ export async function startDashboard(port = 3000) {
       res.json({ data });
     } catch (err) {
       console.error('[dashboard] Chart error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/top-price-drops', async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit) || 8;
+      const drops = await getTopPriceDrops(tursoInstance, limit);
+      res.json({ drops });
+    } catch (err) {
+      console.error('[dashboard] Price drops error:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -505,6 +517,39 @@ function getDashboardHTML() {
     .chart-card canvas {
       max-width: 100%;
     }
+
+    .mini-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88em;
+    }
+
+    .mini-table th,
+    .mini-table td {
+      padding: 8px 6px;
+      border-bottom: 1px solid #efefef;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .mini-table th {
+      color: #555;
+      font-weight: 600;
+      font-size: 0.82em;
+      text-transform: uppercase;
+      letter-spacing: 0.2px;
+    }
+
+    .drop-value {
+      color: #b71c1c;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .muted {
+      color: #777;
+      font-size: 0.9em;
+    }
   </style>
 </head>
 <body>
@@ -541,6 +586,10 @@ function getDashboardHTML() {
           <div class="chart-card">
             <h3>Changes Trend (30 Days)</h3>
             <canvas id="changesTrendChart" height="120"></canvas>
+          </div>
+          <div class="chart-card">
+            <h3>Top Price Drops</h3>
+            <div id="topPriceDrops" class="loading"><div class="spinner"></div>Loading...</div>
           </div>
         </div>
       </div>
@@ -640,6 +689,12 @@ function getDashboardHTML() {
         if (trendsRes.ok) {
           const { data } = await trendsRes.json();
           renderTrendsChart(data || []);
+        }
+
+        const dropsRes = await fetch('/api/top-price-drops?limit=8');
+        if (dropsRes.ok) {
+          const { drops } = await dropsRes.json();
+          renderTopPriceDrops(drops || []);
         }
       } catch (err) {
         console.error('Error loading data:', err);
@@ -905,6 +960,36 @@ function getDashboardHTML() {
           }
         }
       });
+    }
+
+    function renderTopPriceDrops(drops) {
+      const container = document.getElementById('topPriceDrops');
+      if (!container) return;
+
+      if (!drops?.length) {
+        container.innerHTML = '<div class="empty-state" style="padding: 20px 10px;"><h3>No Price Drops</h3><p class="muted">No valid downward changes were detected.</p></div>';
+        return;
+      }
+
+      let html = '<table class="mini-table"><thead><tr><th>Property</th><th>Drop</th><th>Now</th><th>Date</th></tr></thead><tbody>';
+      for (const drop of drops) {
+        const title = drop.title || drop.listing_id || 'Property';
+        const location = drop.location ? '<div class="muted">' + drop.location + '</div>' : '';
+        const url = drop.url ? '<a href="' + drop.url + '" target="_blank">' + title + '</a>' : title;
+        const when = drop.created_at ? new Date(drop.created_at).toLocaleDateString() : '—';
+        const newPrice = Number.isFinite(Number(drop.newPrice)) ? '€' + Number(drop.newPrice).toLocaleString() : '—';
+        const amount = Number.isFinite(Number(drop.dropAmount)) ? '-€' + Number(drop.dropAmount).toLocaleString() : '—';
+        const pct = Number.isFinite(Number(drop.dropPercent)) ? ' (' + Number(drop.dropPercent).toFixed(2) + '%)' : '';
+
+        html += '<tr>'
+          + '<td>' + url + location + '</td>'
+          + '<td class="drop-value">' + amount + pct + '</td>'
+          + '<td>' + newPrice + '</td>'
+          + '<td>' + when + '</td>'
+          + '</tr>';
+      }
+      html += '</tbody></table>';
+      container.innerHTML = html;
     }
 
     function initMap() {

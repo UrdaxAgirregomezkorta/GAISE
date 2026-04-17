@@ -6,8 +6,10 @@
   "type": "module",
   "scripts": {
     "scrape": "node scrape.js",
-    "test": "node --eval 'console.log(\"Add tests here\")'",
-    "status": "node scrape.js --status"
+    "test": "node --test tests/*.test.js",
+    "status": "node scrape.js --status",
+    "cleanup:price-history": "node scripts/cleanup-price-history.js",
+    "cleanup:price-history:apply": "node scripts/cleanup-price-history.js --apply"
   },
   "keywords": [
     "scraper",
