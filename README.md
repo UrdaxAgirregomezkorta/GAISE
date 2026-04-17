@@ -18,24 +18,90 @@ Main work delivered:
 - Milestone 4: Telegram bot notifications (completed).
 - Milestone 5: Scheduled execution and automation (completed).
 - Milestone 6: Dashboard website and analytics features (completed).
-- Milestone 7: Cloud server deployed on UpCloud (completed), but app startup on that server is currently failing.
-- Milestone 8: Deployment/domain configuration (currently problematic).
+- Milestone 7: Cloud server deployed on UpCloud (Ubuntu 24.04) and dashboard startup validated (completed).
+- Milestone 8: Production deployment configured with Nginx reverse proxy (port 80 -> 3000) (completed).
 - Milestone 9: Not completed.
 
 Optional milestone completed:
 - Extra Telegram alerting validation and delivery evidence (Milestone 4 feature).
 
 ## Domain name / IP
-No public domain was deployed because DNS access was not granted to me.
-The project was validated locally using:
+Production deployment is running on UpCloud (Ubuntu 24.04) and is exposed through Nginx reverse proxy.
+
+Validated endpoints:
 - http://localhost:3000
 - http://127.0.0.1:3000
 
 Milestone 7 deployment evidence:
 - Server created in UpCloud: https://hub.upcloud.com/account/sessions
-- Current status: remote server is deployed, but the program could not be launched successfully there.
+- Current status: remote server is deployed and the dashboard process launches correctly.
 
-Deployment-related work was completed up to the DNS step; DNS assignment/configuration remained outside my access permissions.
+Custom DNS domain was not configured because DNS access remained outside project permissions.
+
+## Production deployment
+Deployment stack:
+- Provider and OS: UpCloud Ubuntu 24.04
+- Application runtime: Node.js (ESM project with "type": "module")
+- Reverse proxy: Nginx forwarding port 80 to 127.0.0.1:3000
+
+Real entry point for dashboard:
+- Correct command: `node scrape.js --dashboard --port 3000`
+- Not used as entry point: `node src/dashboard.js`
+
+Environment variables:
+- The `.env` file must be located in the root of Milestone 6 (same folder as `scrape.js`).
+- `scrape.js` loads environment variables automatically with `import 'dotenv/config'`.
+
+Process execution in production:
+- Quick persistent run: `nohup node scrape.js --dashboard --port 3000 > dashboard.log 2>&1 &`
+- Recommended process manager: PM2
+- Start with PM2: `pm2 start scrape.js --name real-estate-dashboard -- --dashboard --port 3000`
+- Persist PM2 process list: `pm2 save`
+- Enable startup on reboot: `pm2 startup`
+
+## Server installation (Ubuntu 24.04)
+1. Install Node.js LTS and Nginx:
+  ```bash
+  sudo apt update
+  sudo apt install -y nginx curl
+  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  sudo apt install -y nodejs
+  ```
+2. Go to the project and install dependencies:
+  ```bash
+  cd /path/to/GAISE/milestone\ 6
+  npm install
+  ```
+3. Create and validate environment variables in `.env` (Milestone 6 root).
+4. Start the dashboard service:
+  ```bash
+  node scrape.js --dashboard --port 3000
+  ```
+  For background execution:
+  ```bash
+  nohup node scrape.js --dashboard --port 3000 > dashboard.log 2>&1 &
+  ```
+5. Configure Nginx as reverse proxy (80 -> 3000):
+  ```nginx
+  server {
+     listen 80;
+     server_name _;
+
+     location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+     }
+  }
+  ```
+6. Validate and reload Nginx:
+  ```bash
+  sudo nginx -t
+  sudo systemctl reload nginx
+  ```
 
 ## Adapters implemented
 The project uses an adapter registry design so each website has an independent scraper implementation while the CLI stays uniform.
@@ -60,7 +126,7 @@ Main issues during implementation:
 - False positive `price_changed` records due legacy normalization.
 - Duplicate listing entries in top price-drop insights.
 - Missing local Telegram credentials in `.env`.
-- Program launch failures on the deployed UpCloud server (Milestone 7 environment).
+- Initial program launch failures on the deployed UpCloud server due incorrect startup entry point.
 
 How they were solved:
 - Improved parsing and normalization for European prices.
@@ -68,13 +134,16 @@ How they were solved:
 - Added deduplication logic by listing ID in dashboard insights.
 - Added tests for parser and normalization-noise filters.
 - Validated Telegram configuration with test command.
+- Switched to the correct dashboard entry point command: `node scrape.js --dashboard --port 3000`.
+- Confirmed `.env` placement in Milestone 6 root and ESM runtime configuration.
+- Added Nginx reverse proxy configuration for production traffic on port 80.
 
 ## Additional comments
 - Dashboard includes live stats, price distribution, change-type chart, trend chart, and top price drops.
 - Telegram notifications were tested end-to-end.
 - The codebase is modular and ready for adding more adapters/sites.
-- Milestone 7 infrastructure was deployed in UpCloud, but runtime launch on that server remains unresolved.
-- Requirement 8 is currently problematic in my environment due to deployment/DNS access limitations.
+- Milestone 7 deployment on UpCloud is operational and the dashboard startup is validated.
+- Milestone 8 production deployment is operational through Nginx reverse proxy (80 -> 3000).
 - Requirement 9 was not completed.
 
 ## Screenshots (highlighted features)
@@ -91,4 +160,3 @@ How they were solved:
 - Telegram alert example (Milestone 4):
   - ![Telegram Alert](docs/screenshots/telegram-alert.png)
 
-Note: additional screenshots can be added in docs/screenshots if you want to highlight more sections (for example, a dedicated Change Log close-up).
