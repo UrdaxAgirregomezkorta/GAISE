@@ -33,6 +33,7 @@ Validated endpoints:
 - http://127.0.0.1:3000
 
 Milestone 7 deployment evidence:
+- http://5.22.218.242
 - Server created in UpCloud: https://hub.upcloud.com/account/sessions
 - Current status: remote server is deployed and the dashboard process launches correctly.
 
